@@ -87,30 +87,30 @@ bool IsSetOperation(Expression::Operation op) {
 
 /// \brief Converts a JSON type string to an Expression::Operation.
 ///
-/// \param type_str The JSON type string
+/// \param typeStr The JSON type string
 /// \return The corresponding Operation or an error if unknown
-Result<Expression::Operation> OperationTypeFromString(const std::string_view type_str) {
-  if (type_str == kTypeTrue) return Expression::Operation::kTrue;
-  if (type_str == kTypeFalse) return Expression::Operation::kFalse;
-  if (type_str == kTypeAnd) return Expression::Operation::kAnd;
-  if (type_str == kTypeOr) return Expression::Operation::kOr;
-  if (type_str == kTypeNot) return Expression::Operation::kNot;
-  if (type_str == kTypeEq) return Expression::Operation::kEq;
-  if (type_str == kTypeNotEq) return Expression::Operation::kNotEq;
-  if (type_str == kTypeLt) return Expression::Operation::kLt;
-  if (type_str == kTypeLtEq) return Expression::Operation::kLtEq;
-  if (type_str == kTypeGt) return Expression::Operation::kGt;
-  if (type_str == kTypeGtEq) return Expression::Operation::kGtEq;
-  if (type_str == kTypeIn) return Expression::Operation::kIn;
-  if (type_str == kTypeNotIn) return Expression::Operation::kNotIn;
-  if (type_str == kTypeIsNull) return Expression::Operation::kIsNull;
-  if (type_str == kTypeNotNull) return Expression::Operation::kNotNull;
-  if (type_str == kTypeIsNan) return Expression::Operation::kIsNan;
-  if (type_str == kTypeNotNan) return Expression::Operation::kNotNan;
-  if (type_str == kTypeStartsWith) return Expression::Operation::kStartsWith;
-  if (type_str == kTypeNotStartsWith) return Expression::Operation::kNotStartsWith;
+Result<Expression::Operation> OperationTypeFromString(const std::string_view typeStr) {
+  if (typeStr == kTypeTrue) return Expression::Operation::kTrue;
+  if (typeStr == kTypeFalse) return Expression::Operation::kFalse;
+  if (typeStr == kTypeAnd) return Expression::Operation::kAnd;
+  if (typeStr == kTypeOr) return Expression::Operation::kOr;
+  if (typeStr == kTypeNot) return Expression::Operation::kNot;
+  if (typeStr == kTypeEq) return Expression::Operation::kEq;
+  if (typeStr == kTypeNotEq) return Expression::Operation::kNotEq;
+  if (typeStr == kTypeLt) return Expression::Operation::kLt;
+  if (typeStr == kTypeLtEq) return Expression::Operation::kLtEq;
+  if (typeStr == kTypeGt) return Expression::Operation::kGt;
+  if (typeStr == kTypeGtEq) return Expression::Operation::kGtEq;
+  if (typeStr == kTypeIn) return Expression::Operation::kIn;
+  if (typeStr == kTypeNotIn) return Expression::Operation::kNotIn;
+  if (typeStr == kTypeIsNull) return Expression::Operation::kIsNull;
+  if (typeStr == kTypeNotNull) return Expression::Operation::kNotNull;
+  if (typeStr == kTypeIsNan) return Expression::Operation::kIsNan;
+  if (typeStr == kTypeNotNan) return Expression::Operation::kNotNan;
+  if (typeStr == kTypeStartsWith) return Expression::Operation::kStartsWith;
+  if (typeStr == kTypeNotStartsWith) return Expression::Operation::kNotStartsWith;
 
-  return JsonParseError("Unknown expression type: {}", type_str);
+  return JsonParseError("Unknown expression type: {}", typeStr);
 }
 
 /// \brief Converts an Expression::Operation to its JSON string representation.
@@ -174,9 +174,9 @@ Result<std::unique_ptr<NamedReference>> NamedReferenceFromJson(
 
   // Handle object term
   if (json.is_object()) {
-    ICEBERG_ASSIGN_OR_RAISE(auto type_str, GetJsonValue<std::string>(json, kType));
+    ICEBERG_ASSIGN_OR_RAISE(auto typeStr, GetJsonValue<std::string>(json, kType));
 
-    if (type_str == kReference) {
+    if (typeStr == kReference) {
       ICEBERG_ASSIGN_OR_RAISE(auto name, GetJsonValue<std::string>(json, kTerm));
       ICEBERG_ASSIGN_OR_RAISE(auto ref, NamedReference::Make(std::move(name)));
       return ref;
@@ -193,9 +193,9 @@ Result<std::unique_ptr<NamedReference>> NamedReferenceFromJson(
 Result<std::unique_ptr<UnboundTransform>> UnboundTransformFromJson(
     const nlohmann::json& json) {
   if (json.is_object()) {
-    ICEBERG_ASSIGN_OR_RAISE(auto type_str, GetJsonValue<std::string>(json, kType));
+    ICEBERG_ASSIGN_OR_RAISE(auto typeStr, GetJsonValue<std::string>(json, kType));
 
-    if (type_str == kTransform) {
+    if (typeStr == kTransform) {
       ICEBERG_ASSIGN_OR_RAISE(auto transform_str,
                               GetJsonValue<std::string>(json, kTransform));
       ICEBERG_ASSIGN_OR_RAISE(auto term_name, GetJsonValue<std::string>(json, kTerm));
