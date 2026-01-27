@@ -67,4 +67,13 @@ ICEBERG_EXPORT bool IsUnaryOperation(Expression::Operation op);
 /// Check if an operation is a set predicate (multiple values)
 ICEBERG_EXPORT bool IsSetOperation(Expression::Operation op);
 
+ICEBERG_EXPORT Result<std::unique_ptr<UnboundTransform>> UnboundTransformFromJson(
+    const nlohmann::json& json);
+
+ICEBERG_EXPORT Result<std::unique_ptr<NamedReference>> NamedReferenceFromJson(
+    const nlohmann::json& json);
+
+ICEBERG_EXPORT nlohmann::json UnboundTransformToJson(const UnboundTransform& transform);
+ICEBERG_EXPORT nlohmann::json NamedReferenceToJson(const NamedReference& ref);
+
 }  // namespace iceberg

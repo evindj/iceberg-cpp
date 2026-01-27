@@ -27,11 +27,18 @@
 #include "iceberg/expression/expressions.h"
 #include "iceberg/expression/json_serde_internal.h"
 #include "iceberg/expression/literal.h"
+#include "iceberg/transform.h"
 #include "iceberg/util/json_util_internal.h"
 #include "iceberg/util/macros.h"
 
 namespace iceberg {
 namespace {
+// JSON fields
+
+constexpr std::string_view kTerm = "term";
+constexpr std::string_view kType = "type";
+constexpr std::string_view kReference = "reference";
+constexpr std::string_view kTransform = "transform";
 // Expression type strings
 constexpr std::string_view kTypeTrue = "true";
 constexpr std::string_view kTypeFalse = "false";
@@ -153,6 +160,73 @@ std::string_view ToStringOperationType(Expression::Operation op) {
     default:
       return "unknown";
   }
+}
+
+/// Parse a named reference from JSON
+Result<std::unique_ptr<NamedReference>> NamedReferenceFromJson(
+    const nlohmann::json& json) {
+  // Handle string term (simple reference)
+  if (json.is_string()) {
+    ICEBERG_ASSIGN_OR_RAISE(auto name, GetTypedJsonValue<std::string>(json));
+    ICEBERG_ASSIGN_OR_RAISE(auto ref, NamedReference::Make(std::move(name)));
+    return ref;
+  }
+
+  // Handle object term
+  if (json.is_object()) {
+    ICEBERG_ASSIGN_OR_RAISE(auto type_str, GetJsonValue<std::string>(json, kType));
+
+    if (type_str == kReference) {
+      ICEBERG_ASSIGN_OR_RAISE(auto name, GetJsonValue<std::string>(json, kTerm));
+      ICEBERG_ASSIGN_OR_RAISE(auto ref, NamedReference::Make(std::move(name)));
+      return ref;
+    }
+    return JsonParseError("Invalid term format, expected string or object: {}",
+                          SafeDumpJson(json));
+  }
+
+  return JsonParseError("Invalid term format, expected string or object: {}",
+                        SafeDumpJson(json));
+}
+
+/// Parse a named reference from JSON
+Result<std::unique_ptr<UnboundTransform>> UnboundTransformFromJson(
+    const nlohmann::json& json) {
+  if (json.is_object()) {
+    ICEBERG_ASSIGN_OR_RAISE(auto type_str, GetJsonValue<std::string>(json, kType));
+
+    if (type_str == kTransform) {
+      ICEBERG_ASSIGN_OR_RAISE(auto transform_str,
+                              GetJsonValue<std::string>(json, kTransform));
+      ICEBERG_ASSIGN_OR_RAISE(auto term_name, GetJsonValue<std::string>(json, kTerm));
+      ICEBERG_ASSIGN_OR_RAISE(auto transform, TransformFromString(transform_str));
+      ICEBERG_ASSIGN_OR_RAISE(auto named_reference,
+                              NamedReference::Make(std::move(term_name)));
+      ICEBERG_ASSIGN_OR_RAISE(auto ref, UnboundTransform::Make(std::move(named_reference),
+                                                               std::move(transform)));
+      return ref;
+    }
+    return JsonParseError("Invalid term format, unexpected transform type {}",
+                          SafeDumpJson(json));
+  }
+
+  return JsonParseError("Invalid term format, expected string or object: {}",
+                        SafeDumpJson(json));
+}
+
+nlohmann::json NamedReferenceToJson(const NamedReference& ref) {
+  return std::string(ref.name());
+}
+
+nlohmann::json UnboundTransformToJson(const UnboundTransform& transform) {
+  nlohmann::json json;
+  json[kType] = kTransform;
+  json[kTransform] = transform.transform()->ToString();
+  // Note: const_cast is safe here because reference() just returns a shared_ptr
+  // and we're only reading from it. The method is not const due to interface design.
+  auto& mutable_transform = const_cast<UnboundTransform&>(transform);
+  json[kTerm] = std::string(mutable_transform.reference()->name());
+  return json;
 }
 
 Result<std::shared_ptr<Expression>> ExpressionFromJson(const nlohmann::json& json) {
