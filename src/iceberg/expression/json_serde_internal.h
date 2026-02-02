@@ -19,6 +19,8 @@
 
 #pragma once
 
+#include <charconv>
+
 #include <nlohmann/json_fwd.hpp>
 
 #include "iceberg/expression/expression.h"
@@ -82,6 +84,37 @@ ICEBERG_EXPORT nlohmann::json ToJson(const UnboundTransform& transform);
 /// \return A shared pointer to the deserialized UnboundTransform or an error
 ICEBERG_EXPORT Result<std::shared_ptr<UnboundTransform>> UnboundTransformFromJson(
     const nlohmann::json& json);
+
+/// \brief Serializes a Literal into its JSON representation.
+///
+/// \param literal The literal to serialize
+/// \return A JSON value representing the literal
+ICEBERG_EXPORT nlohmann::json ToJson(const Literal& literal);
+
+/// \brief Deserializes a JSON value into a Literal.
+///
+/// \param json A JSON value representing a literal
+/// \return The deserialized Literal or an error
+ICEBERG_EXPORT Result<Literal> LiteralFromJson(const nlohmann::json& json);
+
+/// \brief Serializes an UnboundPredicate into its JSON representation.
+///
+/// \param pred The unbound predicate to serialize
+/// \return A JSON object representing the predicate
+ICEBERG_EXPORT nlohmann::json ToJson(const UnboundPredicate& pred);
+
+/// \brief Deserializes a JSON object into an UnboundPredicate.
+///
+/// \param json A JSON object representing an unbound predicate
+/// \return A shared pointer to the deserialized UnboundPredicate or an error
+ICEBERG_EXPORT Result<std::shared_ptr<UnboundPredicate>> UnboundPredicateFromJson(
+    const nlohmann::json& json);
+
+/// \brief Serializes a Term into its JSON representation.
+///
+/// \param term The term to serialize (NamedReference or UnboundTransform)
+/// \return A JSON value representing the term
+ICEBERG_EXPORT nlohmann::json TermToJson(const Term& term);
 
 /// Check if an operation is a unary predicate
 ICEBERG_EXPORT bool IsUnaryOperation(Expression::Operation op);
