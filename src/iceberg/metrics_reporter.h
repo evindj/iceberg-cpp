@@ -136,6 +136,9 @@ struct ICEBERG_EXPORT CommitReport {
 
   /// \brief Size in bytes of files removed.
   int64_t removed_files_size = 0;
+
+  /// \brief Total duration of the commit operation.
+  DurationMs total_duration{0};
 };
 
 /// \brief The type of a metrics report.

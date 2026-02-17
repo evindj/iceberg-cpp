@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "iceberg/iceberg_export.h"
+#include "iceberg/metrics_reporter.h"
 #include "iceberg/snapshot.h"
 #include "iceberg/table_identifier.h"
 #include "iceberg/type_fwd.h"
@@ -117,6 +118,9 @@ class ICEBERG_EXPORT Table : public std::enable_shared_from_this<Table> {
   /// \brief Returns the catalog that this table belongs to
   const std::shared_ptr<Catalog>& catalog() const;
 
+  /// \brief Returns the metrics reporter for this table
+  const std::shared_ptr<MetricsReporter>& reporter() const;
+
   /// \brief Returns a LocationProvider for this table
   Result<std::unique_ptr<LocationProvider>> location_provider() const;
 
@@ -179,6 +183,7 @@ class ICEBERG_EXPORT Table : public std::enable_shared_from_this<Table> {
   std::shared_ptr<FileIO> io_;
   std::shared_ptr<Catalog> catalog_;
   std::unique_ptr<class TableMetadataCache> metadata_cache_;
+  std::shared_ptr<MetricsReporter> reporter_;
 };
 
 /// \brief A table created by stage-create and not yet committed.

@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "iceberg/arrow_c_data.h"
+#include "iceberg/metrics_reporter.h"
 #include "iceberg/result.h"
 #include "iceberg/type_fwd.h"
 #include "iceberg/util/error_collector.h"
@@ -248,6 +249,12 @@ class ICEBERG_EXPORT TableScanBuilder : public ErrorCollector {
   /// \param branch the branch name
   TableScanBuilder& UseBranch(const std::string& branch);
 
+  /// \brief Set the metrics reporter for this scan.
+  /// \param table_name The fully qualified name of the table being scanned.
+  /// \param reporter The metrics reporter to use for reporting scan metrics.
+  TableScanBuilder& Reporter(std::string table_name,
+                             std::shared_ptr<MetricsReporter> reporter);
+
   /// \brief Builds and returns a TableScan instance.
   /// \return A Result containing the TableScan or an error.
   Result<std::unique_ptr<TableScan>> Build();
@@ -265,6 +272,8 @@ class ICEBERG_EXPORT TableScanBuilder : public ErrorCollector {
   std::shared_ptr<FileIO> io_;
   internal::TableScanContext context_;
   std::shared_ptr<Schema> snapshot_schema_;
+  std::string table_name_;
+  std::shared_ptr<MetricsReporter> reporter_;
 };
 
 /// \brief Represents a configured scan operation on a table.
@@ -299,7 +308,8 @@ class ICEBERG_EXPORT TableScan {
 
  protected:
   TableScan(std::shared_ptr<TableMetadata> metadata, std::shared_ptr<Schema> schema,
-            std::shared_ptr<FileIO> io, internal::TableScanContext context);
+            std::shared_ptr<FileIO> io, internal::TableScanContext context,
+            std::string table_name, std::shared_ptr<MetricsReporter> reporter);
 
   Result<std::reference_wrapper<const std::shared_ptr<Schema>>> ResolveProjectedSchema()
       const;
@@ -311,6 +321,8 @@ class ICEBERG_EXPORT TableScan {
   const std::shared_ptr<FileIO> io_;
   const internal::TableScanContext context_;
   mutable std::shared_ptr<Schema> projected_schema_;
+  const std::string table_name_;
+  const std::shared_ptr<MetricsReporter> reporter_;
 };
 
 /// \brief A scan that reads data files and applies delete files to filter rows.
@@ -319,7 +331,8 @@ class ICEBERG_EXPORT DataTableScan : public TableScan {
   /// \brief Constructs a DataTableScan instance.
   static Result<std::unique_ptr<DataTableScan>> Make(
       std::shared_ptr<TableMetadata> metadata, std::shared_ptr<Schema> schema,
-      std::shared_ptr<FileIO> io, internal::TableScanContext context);
+      std::shared_ptr<FileIO> io, internal::TableScanContext context,
+      std::string table_name = {}, std::shared_ptr<MetricsReporter> reporter = nullptr);
 
   /// \brief Plans the scan tasks by resolving manifests and data files.
   /// \return A Result containing scan tasks or an error.
@@ -327,7 +340,8 @@ class ICEBERG_EXPORT DataTableScan : public TableScan {
 
  protected:
   DataTableScan(std::shared_ptr<TableMetadata> metadata, std::shared_ptr<Schema> schema,
-                std::shared_ptr<FileIO> io, internal::TableScanContext context);
+                std::shared_ptr<FileIO> io, internal::TableScanContext context,
+                std::string table_name, std::shared_ptr<MetricsReporter> reporter);
 };
 
 }  // namespace iceberg

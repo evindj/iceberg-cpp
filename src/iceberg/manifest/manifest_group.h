@@ -22,6 +22,7 @@
 /// \file iceberg/manifest/manifest_group.h
 /// Coordinates reading manifest files and producing scan tasks.
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -38,6 +39,16 @@
 #include "iceberg/util/error_collector.h"
 
 namespace iceberg {
+
+/// \brief Collects scan metrics during manifest processing.
+struct ICEBERG_EXPORT ScanMetricsCollector {
+  int64_t scanned_data_manifests = 0;
+  int64_t skipped_data_manifests = 0;
+  int64_t scanned_delete_manifests = 0;
+  int64_t skipped_delete_manifests = 0;
+  int64_t skipped_data_files = 0;
+  int64_t skipped_delete_files = 0;
+};
 
 /// \brief Context passed to task creation functions.
 struct ICEBERG_EXPORT TaskContext {
@@ -120,6 +131,12 @@ class ICEBERG_EXPORT ManifestGroup : public ErrorCollector {
   /// \param column_ids Field IDs of columns whose statistics should be preserved.
   ManifestGroup& ColumnsToKeepStats(std::unordered_set<int32_t> column_ids);
 
+  /// \brief Set a metrics collector to receive scan metrics during planning.
+  ///
+  /// \param collector Pointer to a ScanMetricsCollector that will be populated.
+  ///        The caller retains ownership and must ensure it outlives the ManifestGroup.
+  ManifestGroup& Collector(ScanMetricsCollector* collector);
+
   /// \brief Plan scan tasks for all matching data files.
   Result<std::vector<std::shared_ptr<FileScanTask>>> PlanFiles();
 
@@ -162,6 +179,7 @@ class ICEBERG_EXPORT ManifestGroup : public ErrorCollector {
   bool ignore_deleted_ = false;
   bool ignore_existing_ = false;
   bool ignore_residuals_ = false;
+  ScanMetricsCollector* collector_ = nullptr;
 };
 
 }  // namespace iceberg

@@ -23,6 +23,7 @@
 
 #include "iceberg/catalog.h"
 #include "iceberg/location_provider.h"
+#include "iceberg/metrics_reporters.h"
 #include "iceberg/partition_spec.h"
 #include "iceberg/result.h"
 #include "iceberg/schema.h"
@@ -73,7 +74,13 @@ Table::Table(TableIdentifier identifier, std::shared_ptr<TableMetadata> metadata
       metadata_location_(std::move(metadata_location)),
       io_(std::move(io)),
       catalog_(std::move(catalog)),
-      metadata_cache_(std::make_unique<TableMetadataCache>(metadata_.get())) {}
+      metadata_cache_(std::make_unique<TableMetadataCache>(metadata_.get())) {
+  auto reporter_result =
+      MetricsReporters::Load(identifier_.name, metadata_->properties.configs());
+  if (reporter_result.has_value()) {
+    reporter_ = std::move(reporter_result.value());
+  }
+}
 
 const std::string& Table::uuid() const { return metadata_->table_uuid; }
 
@@ -83,6 +90,7 @@ Status Table::Refresh() {
     metadata_ = std::move(refreshed_table->metadata_);
     io_ = std::move(refreshed_table->io_);
     metadata_cache_ = std::make_unique<TableMetadataCache>(metadata_.get());
+    reporter_ = std::move(refreshed_table->reporter_);
   }
   return {};
 }
@@ -144,12 +152,16 @@ const std::shared_ptr<TableMetadata>& Table::metadata() const { return metadata_
 
 const std::shared_ptr<Catalog>& Table::catalog() const { return catalog_; }
 
+const std::shared_ptr<MetricsReporter>& Table::reporter() const { return reporter_; }
+
 Result<std::unique_ptr<LocationProvider>> Table::location_provider() const {
   return LocationProvider::Make(metadata_->location, metadata_->properties);
 }
 
 Result<std::unique_ptr<TableScanBuilder>> Table::NewScan() const {
-  return TableScanBuilder::Make(metadata_, io_);
+  ICEBERG_ASSIGN_OR_RAISE(auto builder, TableScanBuilder::Make(metadata_, io_));
+  builder->Reporter(identifier_.ToString(), reporter_);
+  return builder;
 }
 
 Result<std::shared_ptr<Transaction>> Table::NewTransaction() {

@@ -19,10 +19,13 @@
  */
 #include "iceberg/transaction.h"
 
+#include <charconv>
+#include <chrono>
 #include <memory>
 #include <optional>
 
 #include "iceberg/catalog.h"
+#include "iceberg/metrics_reporter.h"
 #include "iceberg/schema.h"
 #include "iceberg/snapshot.h"
 #include "iceberg/statistics_file.h"
@@ -50,6 +53,22 @@
 #include "iceberg/util/macros.h"
 
 namespace iceberg {
+
+namespace {
+
+/// \brief Parse an int64_t from a snapshot summary field, returning 0 if not found.
+int64_t GetSummaryInt64(const std::unordered_map<std::string, std::string>& summary,
+                        const std::string& key) {
+  auto it = summary.find(key);
+  if (it == summary.end()) {
+    return 0;
+  }
+  int64_t value = 0;
+  std::from_chars(it->second.data(), it->second.data() + it->second.size(), value);
+  return value;
+}
+
+}  // namespace
 
 Transaction::Transaction(std::shared_ptr<Table> table, Kind kind, bool auto_commit,
                          std::unique_ptr<TableMetadataBuilder> metadata_builder)
@@ -309,6 +328,8 @@ Result<std::shared_ptr<Table>> Transaction::Commit() {
         "Cannot commit transaction when previous update is not committed");
   }
 
+  const auto commit_start = std::chrono::steady_clock::now();
+
   const auto& updates = metadata_builder_->changes();
   if (updates.empty()) {
     committed_ = true;
@@ -344,6 +365,47 @@ Result<std::shared_ptr<Table>> Transaction::Commit() {
   // Mark as committed and update table reference
   committed_ = true;
   table_ = std::move(commit_result.value());
+
+  // Report commit metrics if a reporter is configured
+  if (const auto& reporter = table_->reporter()) {
+    auto snapshot_result = table_->current_snapshot();
+    if (snapshot_result.has_value() && snapshot_result.value()) {
+      const auto& snapshot = snapshot_result.value();
+      const auto& summary = snapshot->summary;
+
+      CommitReport report;
+      report.table_name = table_->name().ToString();
+      report.snapshot_id = snapshot->snapshot_id;
+      report.sequence_number = snapshot->sequence_number;
+      if (auto op = snapshot->Operation()) {
+        report.operation = std::string(*op);
+      }
+      report.added_data_files =
+          GetSummaryInt64(summary, SnapshotSummaryFields::kAddedDataFiles);
+      report.removed_data_files =
+          GetSummaryInt64(summary, SnapshotSummaryFields::kDeletedDataFiles);
+      report.total_data_files =
+          GetSummaryInt64(summary, SnapshotSummaryFields::kTotalDataFiles);
+      report.added_delete_files =
+          GetSummaryInt64(summary, SnapshotSummaryFields::kAddedDeleteFiles);
+      report.removed_delete_files =
+          GetSummaryInt64(summary, SnapshotSummaryFields::kRemovedDeleteFiles);
+      report.total_delete_files =
+          GetSummaryInt64(summary, SnapshotSummaryFields::kTotalDeleteFiles);
+      report.added_records =
+          GetSummaryInt64(summary, SnapshotSummaryFields::kAddedRecords);
+      report.removed_records =
+          GetSummaryInt64(summary, SnapshotSummaryFields::kDeletedRecords);
+      report.added_files_size =
+          GetSummaryInt64(summary, SnapshotSummaryFields::kAddedFileSize);
+      report.removed_files_size =
+          GetSummaryInt64(summary, SnapshotSummaryFields::kRemovedFileSize);
+      report.total_duration = std::chrono::duration_cast<DurationMs>(
+          std::chrono::steady_clock::now() - commit_start);
+
+      reporter->Report(report);
+    }
+  }
 
   return table_;
 }

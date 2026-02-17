@@ -150,6 +150,11 @@ ManifestGroup& ManifestGroup::ColumnsToKeepStats(std::unordered_set<int32_t> col
   return *this;
 }
 
+ManifestGroup& ManifestGroup::Collector(ScanMetricsCollector* collector) {
+  collector_ = collector;
+  return *this;
+}
+
 Result<std::vector<std::shared_ptr<FileScanTask>>> ManifestGroup::PlanFiles() {
   auto create_file_scan_tasks =
       [this](std::vector<ManifestEntry>&& entries,
@@ -321,12 +326,18 @@ ManifestGroup::ReadEntries() {
     ICEBERG_ASSIGN_OR_RAISE(bool should_match, manifest_evaluator->Evaluate(manifest));
     if (!should_match) {
       // Skip this manifest because it doesn't match partition filter
+      if (collector_) {
+        ++collector_->skipped_data_manifests;
+      }
       continue;
     }
 
     if (ignore_deleted_) {
       // only scan manifests that have entries other than deletes
       if (!manifest.has_added_files() && !manifest.has_existing_files()) {
+        if (collector_) {
+          ++collector_->skipped_data_manifests;
+        }
         continue;
       }
     }
@@ -334,8 +345,15 @@ ManifestGroup::ReadEntries() {
     if (ignore_existing_) {
       // only scan manifests that have entries other than existing
       if (!manifest.has_added_files() && !manifest.has_deleted_files()) {
+        if (collector_) {
+          ++collector_->skipped_data_manifests;
+        }
         continue;
       }
+    }
+
+    if (collector_) {
+      ++collector_->scanned_data_manifests;
     }
 
     // Read manifest entries
@@ -345,6 +363,9 @@ ManifestGroup::ReadEntries() {
 
     for (auto& entry : entries) {
       if (ignore_existing_ && entry.status == ManifestStatus::kExisting) {
+        if (collector_) {
+          ++collector_->skipped_data_files;
+        }
         continue;
       }
 
@@ -354,6 +375,9 @@ ManifestGroup::ReadEntries() {
       }
 
       if (!manifest_entry_predicate_(entry)) {
+        if (collector_) {
+          ++collector_->skipped_data_files;
+        }
         continue;
       }
 

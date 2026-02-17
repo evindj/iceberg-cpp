@@ -19,6 +19,7 @@
 
 #include "iceberg/table_scan.h"
 
+#include <chrono>
 #include <cstring>
 #include <iterator>
 
@@ -339,6 +340,13 @@ TableScanBuilder& TableScanBuilder::UseBranch(const std::string& branch) {
   return *this;
 }
 
+TableScanBuilder& TableScanBuilder::Reporter(std::string table_name,
+                                             std::shared_ptr<MetricsReporter> reporter) {
+  table_name_ = std::move(table_name);
+  reporter_ = std::move(reporter);
+  return *this;
+}
+
 Result<std::reference_wrapper<const std::shared_ptr<Schema>>>
 TableScanBuilder::ResolveSnapshotSchema() {
   if (snapshot_schema_ == nullptr) {
@@ -368,16 +376,20 @@ Result<std::unique_ptr<TableScan>> TableScanBuilder::Build() {
   }
 
   ICEBERG_ASSIGN_OR_RAISE(auto schema, ResolveSnapshotSchema());
-  return DataTableScan::Make(metadata_, schema.get(), io_, std::move(context_));
+  return DataTableScan::Make(metadata_, schema.get(), io_, std::move(context_),
+                             std::move(table_name_), std::move(reporter_));
 }
 
 TableScan::TableScan(std::shared_ptr<TableMetadata> metadata,
                      std::shared_ptr<Schema> schema, std::shared_ptr<FileIO> file_io,
-                     internal::TableScanContext context)
+                     internal::TableScanContext context, std::string table_name,
+                     std::shared_ptr<MetricsReporter> reporter)
     : metadata_(std::move(metadata)),
       schema_(std::move(schema)),
       io_(std::move(file_io)),
-      context_(std::move(context)) {}
+      context_(std::move(context)),
+      table_name_(std::move(table_name)),
+      reporter_(std::move(reporter)) {}
 
 TableScan::~TableScan() = default;
 
@@ -458,25 +470,32 @@ const std::vector<std::string>& TableScan::ScanColumns() const {
 
 Result<std::unique_ptr<DataTableScan>> DataTableScan::Make(
     std::shared_ptr<TableMetadata> metadata, std::shared_ptr<Schema> schema,
-    std::shared_ptr<FileIO> io, internal::TableScanContext context) {
+    std::shared_ptr<FileIO> io, internal::TableScanContext context,
+    std::string table_name, std::shared_ptr<MetricsReporter> reporter) {
   ICEBERG_PRECHECK(metadata != nullptr, "Table metadata cannot be null");
   ICEBERG_PRECHECK(schema != nullptr, "Schema cannot be null");
   ICEBERG_PRECHECK(io != nullptr, "FileIO cannot be null");
-  return std::unique_ptr<DataTableScan>(new DataTableScan(
-      std::move(metadata), std::move(schema), std::move(io), std::move(context)));
+  return std::unique_ptr<DataTableScan>(
+      new DataTableScan(std::move(metadata), std::move(schema), std::move(io),
+                        std::move(context), std::move(table_name), std::move(reporter)));
 }
 
 DataTableScan::DataTableScan(std::shared_ptr<TableMetadata> metadata,
                              std::shared_ptr<Schema> schema, std::shared_ptr<FileIO> io,
-                             internal::TableScanContext context)
-    : TableScan(std::move(metadata), std::move(schema), std::move(io),
-                std::move(context)) {}
+                             internal::TableScanContext context, std::string table_name,
+                             std::shared_ptr<MetricsReporter> reporter)
+    : TableScan(std::move(metadata), std::move(schema), std::move(io), std::move(context),
+                std::move(table_name), std::move(reporter)) {}
 
 Result<std::vector<std::shared_ptr<FileScanTask>>> DataTableScan::PlanFiles() const {
+  const auto scan_start = std::chrono::steady_clock::now();
+
   ICEBERG_ASSIGN_OR_RAISE(auto snapshot, this->snapshot());
   if (!snapshot) {
     return std::vector<std::shared_ptr<FileScanTask>>{};
   }
+
+  const auto planning_start = std::chrono::steady_clock::now();
 
   TableMetadataCache metadata_cache(metadata_.get());
   ICEBERG_ASSIGN_OR_RAISE(auto specs_by_id, metadata_cache.GetPartitionSpecsById());
@@ -484,6 +503,8 @@ Result<std::vector<std::shared_ptr<FileScanTask>>> DataTableScan::PlanFiles() co
   SnapshotCache snapshot_cache(snapshot.get());
   ICEBERG_ASSIGN_OR_RAISE(auto data_manifests, snapshot_cache.DataManifests(io_));
   ICEBERG_ASSIGN_OR_RAISE(auto delete_manifests, snapshot_cache.DeleteManifests(io_));
+
+  ScanMetricsCollector collector;
 
   ICEBERG_ASSIGN_OR_RAISE(
       auto manifest_group,
@@ -494,11 +515,46 @@ Result<std::vector<std::shared_ptr<FileScanTask>>> DataTableScan::PlanFiles() co
       .Select(ScanColumns())
       .FilterData(filter())
       .IgnoreDeleted()
-      .ColumnsToKeepStats(context_.columns_to_keep_stats);
+      .ColumnsToKeepStats(context_.columns_to_keep_stats)
+      .Collector(reporter_ ? &collector : nullptr);
   if (context_.ignore_residuals) {
     manifest_group->IgnoreResiduals();
   }
-  return manifest_group->PlanFiles();
+  auto result = manifest_group->PlanFiles();
+
+  // Report scan metrics if a reporter is configured
+  if (reporter_) {
+    const auto scan_end = std::chrono::steady_clock::now();
+
+    ScanReport report;
+    report.table_name = table_name_;
+    report.snapshot_id = snapshot->snapshot_id;
+    report.schema_id = snapshot->schema_id.value_or(-1);
+    report.filter = filter()->ToString();
+    report.total_data_manifests = static_cast<int64_t>(data_manifests.size());
+    report.total_delete_manifests = static_cast<int64_t>(delete_manifests.size());
+    report.scanned_data_manifests = collector.scanned_data_manifests;
+    report.skipped_data_manifests = collector.skipped_data_manifests;
+    report.scanned_delete_manifests = collector.scanned_delete_manifests;
+    report.skipped_delete_manifests = collector.skipped_delete_manifests;
+    report.skipped_data_files = collector.skipped_data_files;
+    report.skipped_delete_files = collector.skipped_delete_files;
+    report.total_planning_duration =
+        std::chrono::duration_cast<DurationMs>(scan_end - planning_start);
+    report.total_duration = std::chrono::duration_cast<DurationMs>(scan_end - scan_start);
+
+    if (result.has_value()) {
+      const auto& tasks = result.value();
+      for (const auto& task : tasks) {
+        report.result_data_files++;
+        report.result_delete_files += static_cast<int64_t>(task->delete_files().size());
+      }
+    }
+
+    reporter_->Report(report);
+  }
+
+  return result;
 }
 
 }  // namespace iceberg
